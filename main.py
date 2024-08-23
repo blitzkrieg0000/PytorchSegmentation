@@ -1,115 +1,157 @@
+import os
+
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchvision
-from torch.utils.data import DataLoader,Dataset,random_split
-from torchmetrics import ConfusionMatrix,Accuracy,Recall,Precision,F1Score
-import torchvision.transforms as transforms
 import torchvision.models as models
-import os 
+from torchvision.transforms import v2 as tranformsv2
 from PIL import Image
-import matplotlib.pyplot as plt
-import numpy as np
-import seaborn as sns
+from torch.utils.data import DataLoader, Dataset, random_split
+from torchmetrics import Accuracy, ConfusionMatrix, F1Score, Precision, Recall
 
+from Tool.Util import GetUniqueRGBPixels, RGBMaskToColorMap
+
+# =================================================================================================================== #
+#! PARAMS
+# =================================================================================================================== #
 image_dir = "./data/data/images"
 mask_dir = "./data/data/masks"
+BATCH_SIZE = 8
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
+LEARNING_RATE = 1e-4
+EPOCH = 10
+NUM_CLASSES = 2
+CLASS_NAMES = ["background", "disease"]
 
+
+# =================================================================================================================== #
+#! TOOL
+# =================================================================================================================== #
+class MaskTransforms():
+    def __init__(self, color_maps:dict[int, torch.Tensor]=[], channel_first=False):
+        self.ColorMaps = color_maps
+        self.ChannelFirst = channel_first
+
+    def __call__(self, image):
+        maps = GetUniqueRGBPixels(image, self.ChannelFirst)
+        maps.update(self.ColorMaps)
+        newMask = RGBMaskToColorMap(image, maps, self.ChannelFirst)
+        return newMask
+    
+TRANSFORMS = tranformsv2.Compose([
+    tranformsv2.Resize((256, 256)),
+    tranformsv2.ToImage()
+])
+
+MASK_TRANSFORMS = tranformsv2.Compose([
+    TRANSFORMS,
+    MaskTransforms()
+])
+
+
+
+# =================================================================================================================== #
+#! Load Dataset
+# =================================================================================================================== #
 class CustomSegmentationDataset():
-    def __init__(self, img_dir,mask_dir, transform = None):
+    def __init__(self, img_dir, mask_dir, transform=None, mask_transforms=None):
         self.img_dir = img_dir
         self.mask_dir = mask_dir
         self.dataset = []
         self.transform = transform
-        self.img_file = os.listdir(img_dir)
-        self.mask_file = os.listdir(mask_dir)
+        self.mask_transforms = MASK_TRANSFORMS
         self.unique_values = set()
-        for img in self.img_file :
-           image = os.path.join(img_dir,img)
-           img_splt = img.split(".")
-           for msk in self.mask_file:
-               msk_splt = msk.split(".")
-               if(msk_splt[0] == img_splt[0]):
-                  mask = os.path.join(mask_dir,msk)
-                  self.dataset.append([image,mask])
-                  break
-               else:
-                   continue
+        self.img_files = []
+        self.mask_files = []
+        self.ReadMetadata()
+
+
+    def ReadMetadata(self):
+        # Klasörleri Oku
+        self.img_files = np.array(os.listdir(self.img_dir))
+        self.mask_files = np.array(os.listdir(self.mask_dir))
+        
+        for img_file in self.img_files :
+            img_name = "".join(img_file.split(".")[:-1])                # "image" dosyasının adını çıkar. Uzantısı hariç
+            conditions = list(map(lambda x: img_name in x, self.mask_files))
+            if any(conditions):
+                mask_file = self.mask_files[conditions]
+                if not mask_file:
+                    continue
+
+                mask_path = os.path.join(self.mask_dir, mask_file[0])
+                image_path = os.path.join(self.img_dir, img_file)
+                self.dataset += [[image_path, mask_path]]
+               
+
+    def ReadImage(self, path):
+        return Image.open(path).convert("RGB")
+
+
+    def ApplyTransforms(self, image, mask):
+        if self.transform:
+            image = self.transform(image)
+
+        if self.mask_transforms:
+            mask = self.mask_transforms(mask) 
+
+        return image, mask
+
 
     def __len__(self):
         return len(self.dataset)
 
+
     def __getitem__(self, idx):
-        img_name, mask_name = self.dataset[idx]
-        
-        image = Image.open(img_name).convert('RGB')
-        mask = Image.open(mask_name).convert('RGB') 
-        if self.transform:
-            print("girdi")
-            image = self.transform(image)
-            mask = self.transform(mask) 
+        img_path, mask_path = self.dataset[idx]
+        image = self.ReadImage(img_path)
+        temp = np.array(image)
+        mask = self.ReadImage(mask_path)
+        image, mask = self.ApplyTransforms(image, mask)
+
         return image, mask
     
     def number_of_classes(self):
-       for file in self.mask_file:
+       for file in self.mask_files:
             mask_path = os.path.join(mask_dir, file)
             mask = Image.open(mask_path).convert("L")
             self.unique_values.update(np.unique(mask))
        return len(self.unique_values)
-               
-transform = transforms.Compose([
-    transforms.Resize((256,256)),
-    transforms.ToTensor()
-]) 
-       
-datasets = CustomSegmentationDataset(img_dir=image_dir,mask_dir=mask_dir,transform=transform)
-dataset = datasets.dataset
-train_data_size = int(len(dataset) * 0.8)
-test_data_size = int(len(dataset) - train_data_size)
 
-train_dataset, test_dataset = random_split(dataset, [train_data_size, test_data_size])
 
-batch_size = 32
-train_loader = DataLoader(train_dataset,batch_size=batch_size,shuffle=True)
-test_loader = DataLoader(test_dataset,batch_size=batch_size,shuffle=False)
+# Load
+DATASET = CustomSegmentationDataset(
+    img_dir=image_dir,
+    mask_dir=mask_dir,
+    transform=TRANSFORMS,
+    mask_transforms=MASK_TRANSFORMS
+)
 
-x_train_list = []
-y_train_list = []
 
-for image_paths, mask_paths in train_loader:
-    for img_path, mask_path in zip(image_paths, mask_paths):
-        image = Image.open(img_path).convert('RGB')
-        tensor_image = transform(image)
-        x_train_list.append(tensor_image)
+# Split
+val_ratio = 0.1
+test_ratio = 0.2
+train_ratio = 1-val_ratio-test_ratio
 
-        mask = Image.open(mask_path).convert('RGB')
-        tensor_mask = transform(mask)
-        y_train_list.append(tensor_mask)
+train_dataset, validation_dataset, test_dataset = random_split(DATASET, [train_ratio, val_ratio, test_ratio])
 
-x_test_list = []
-y_test_list = []
+TRAIN_LOADER = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+VAL_LOADER = DataLoader(validation_dataset, batch_size=BATCH_SIZE, shuffle=False)
+TEST_LOADER = DataLoader(test_dataset, batch_size=1, shuffle=False)
 
-for image_paths, mask_paths in test_loader:
-    for img_path, mask_path in zip(image_paths, mask_paths):
-        image = Image.open(img_path).convert('RGB')
-        tensor_image = transform(image)
-        x_test_list.append(tensor_image)
 
-        mask = Image.open(mask_path).convert('RGB')
-        tensor_mask = transform(mask)
-        y_test_list.append(tensor_mask)
 
-x_train = torch.stack(x_train_list)    
-y_train = torch.stack(y_train_list)
-x_test = torch.stack(x_test_list)
-y_test = torch.stack(y_train_list) 
-
-num_classes = datasets.number_of_classes()
-print (num_classes)
-
-class SimplerSegmentation(nn.Module):
+# =================================================================================================================== #
+#! Create Model
+# =================================================================================================================== #
+class SimpleSegmentation(nn.Module):
     def __init__(self, num_classes):
-        super(SimplerSegmentation, self).__init__()
+        super(SimpleSegmentation, self).__init__()
+
         self.encoder = nn.Sequential(
             nn.Conv2d(3, 32, kernel_size=3, padding=1),
             nn.ReLU(),
@@ -131,43 +173,45 @@ class SimplerSegmentation(nn.Module):
         return x
     
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")    
-model = SimplerSegmentation(num_classes=num_classes)
-model = model.to(DEVICE)
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
-num_epochs = 10
 
-for epoch in range(num_epochs):
-    model.train()
+# =================================================================================================================== #
+#! Compile Model
+# =================================================================================================================== #
+model = SimpleSegmentation(num_classes=NUM_CLASSES)
+model = model.to(DEVICE)
+model.train()
+
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+
+images: torch.Tensor
+masks: torch.Tensor
+for epoch in range(EPOCH):
     running_loss = 0.0
     
-    for image_paths, mask_paths in train_loader:  # Görüntü ve maske yollarını al
-        images = []
-        masks = []
-        for img_path, mask_path in zip(image_paths, mask_paths): # Her bir batch'deki yollar üzerinde yinele
-            image = Image.open(img_path).convert('RGB')
-            tensor_image = transform(image).to(DEVICE)
-            images.append(tensor_image)
-            
-            mask = Image.open(mask_path).convert('RGB')
-            tensor_mask = transform(mask).to(DEVICE)
-            masks.append(tensor_mask)
-        
-        # Görüntüleri ve maskeleri tensörlere yığınla
-        images = torch.stack(images)
-        masks = torch.stack(masks)
-        
+    for images, masks in TRAIN_LOADER:  # Görüntü ve maske yollarını al
+        images, masks = images.to(DEVICE), masks.to(DEVICE)
+
+        # Hafızadaki Gradyantlerı sıfırla
         optimizer.zero_grad()
-        # print(images.shape) # Görüntü tensörünün şeklini kontrol et
-        outputs = model(images)  # Şimdi görüntü tensörlerini modele geçir
-        loss = criterion(outputs, masks.argmax(dim=1))
+
+        # Forward
+        outputs = model(images)
+        groundTruth = masks.argmax(dim=1)
+
+        # Loss
+        loss = criterion(outputs, groundTruth)
+
+        # Backward
         loss.backward()
+
+        # Optimize
         optimizer.step()
         
-        running_loss += loss.item() * images.size(0)
+        running_loss += loss.item()
 
-    print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss/len(train_loader):.4f}')
+    print(f'Epoch [{epoch+1}/{EPOCH}], Loss: {running_loss/len(TRAIN_LOADER):.4f}')
+
 
 #model.eval()
 #

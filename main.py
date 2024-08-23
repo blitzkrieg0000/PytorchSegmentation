@@ -64,7 +64,7 @@ class CustomSegmentationDataset():
         self.mask_dir = mask_dir
         self.dataset = []
         self.transform = transform
-        self.mask_transforms = MASK_TRANSFORMS
+        self.mask_transforms = mask_transforms
         self.unique_values = set()
         self.img_files = []
         self.mask_files = []
@@ -175,6 +175,16 @@ class SimpleSegmentation(nn.Module):
     
 
 
+
+for (images, masks) in TRAIN_LOADER:  # Görüntü ve maske yollarını al
+    images, masks = images.to(DEVICE, dtype=torch.float32), masks.to(DEVICE, dtype=torch.int64)
+    print(masks.unique())
+
+import sys
+sys.exit()
+
+
+
 # =================================================================================================================== #
 #! Compile Model
 # =================================================================================================================== #
@@ -195,7 +205,7 @@ for epoch in range(EPOCH):
         images, masks = images.to(DEVICE, dtype=torch.float32), masks.to(DEVICE, dtype=torch.int64)
 
         # plt.figure(figsize=(10, 10))
-        # plt.imshow(masks.cpu().numpy()[0])
+        # plt.imshow(masks[0].cpu().numpy())
         # plt.show()
 
 

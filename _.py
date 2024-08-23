@@ -7,7 +7,7 @@ import torchvision
 # img = cv2.imread("data/data/masks/00000.png")
 # image = torch.from_numpy(img)
 
-image = torchvision.io.read_image("data/data/masks/00001.png", torchvision.io.ImageReadMode.RGB)
+image = torchvision.io.read_image("data/data/masks/00003.png", torchvision.io.ImageReadMode.RGB)
 
 
 class MaskTransforms():

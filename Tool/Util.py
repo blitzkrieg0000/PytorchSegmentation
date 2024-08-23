@@ -13,7 +13,8 @@ def GetUniqueRGBPixels(image:torch.Tensor, channel_first:bool=False):
             dict[int, torch.Tensor]
     """
     if channel_first: # To Channel Last: C x H x W => H x W x C
-        image = image.permute(2, 0, 1)
+        image = image.permute(1, 2, 0)
+
     uniques = image.view(-1, image.shape[-1]).unique(dim=0)
     maps = {index: val for index, val in enumerate(uniques)}
     return maps
@@ -32,11 +33,11 @@ def RGBMaskToColorMap(image:torch.Tensor, map:dict[int, torch.Tensor], channel_f
             torch.Tensor H x W şeklinde bir tensor
     """
     if channel_first:
-        image = image.permute(2, 0, 1)
+        image = image.permute(1, 2, 0)
 
-    newMask = torch.zeros((image.shape[0], image.shape[1]), dtype=torch.uint8)
+    newMask = torch.zeros((image.shape[0], image.shape[1]), dtype=torch.int64)
     for key, value in map.items():
         mask = torch.all(image == value, dim=-1)
-        newMask[mask] = key
+        newMask[mask] = int(key)
 
     return newMask

@@ -11,7 +11,7 @@ import torchvision.models as models
 from torchvision.transforms import v2 as tranformsv2
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset, random_split
-from torchmetrics import Accuracy, ConfusionMatrix, F1Score, Precision, Recall
+# from torchmetrics import Accuracy, ConfusionMatrix, F1Score, Precision, Recall
 
 from Tool.Util import GetUniqueRGBPixels, RGBMaskToColorMap
 
@@ -43,13 +43,13 @@ class MaskTransforms():
         return newMask
     
 TRANSFORMS = tranformsv2.Compose([
-    tranformsv2.Resize((256, 256)),
-    tranformsv2.ToImage()
+    tranformsv2.ToImage(),
+    tranformsv2.Resize((256, 256), antialias=True)
 ])
 
 MASK_TRANSFORMS = tranformsv2.Compose([
     TRANSFORMS,
-    MaskTransforms()
+    MaskTransforms(channel_first=True)
 ])
 
 
@@ -88,8 +88,9 @@ class CustomSegmentationDataset():
                 self.dataset += [[image_path, mask_path]]
                
 
-    def ReadImage(self, path):
-        return Image.open(path).convert("RGB")
+    def ReadImage(self, path) -> torch.Tensor:
+        return torchvision.io.read_image(path, torchvision.io.ImageReadMode.RGB) # C x H x W
+        # return Image.open(path).convert("RGB")
 
 
     def ApplyTransforms(self, image, mask):
@@ -109,12 +110,11 @@ class CustomSegmentationDataset():
     def __getitem__(self, idx):
         img_path, mask_path = self.dataset[idx]
         image = self.ReadImage(img_path)
-        temp = np.array(image)
         mask = self.ReadImage(mask_path)
         image, mask = self.ApplyTransforms(image, mask)
-
         return image, mask
     
+
     def number_of_classes(self):
        for file in self.mask_files:
             mask_path = os.path.join(mask_dir, file)
@@ -186,21 +186,28 @@ optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
 images: torch.Tensor
 masks: torch.Tensor
+outputs: torch.Tensor
 for epoch in range(EPOCH):
     running_loss = 0.0
     
-    for images, masks in TRAIN_LOADER:  # Görüntü ve maske yollarını al
-        images, masks = images.to(DEVICE), masks.to(DEVICE)
+    for (images, masks) in TRAIN_LOADER:  # Görüntü ve maske yollarını al
+        images, masks = images.to(DEVICE, dtype=torch.float32), masks.to(DEVICE, dtype=torch.int64)
+
+
+        # plt.figure(figsize=(10, 10))
+        # plt.imshow(masks.cpu().numpy()[0])
+        # plt.show()
+
 
         # Hafızadaki Gradyantlerı sıfırla
         optimizer.zero_grad()
 
         # Forward
         outputs = model(images)
-        groundTruth = masks.argmax(dim=1)
+        prediction = outputs.argmax(dim=1)
 
         # Loss
-        loss = criterion(outputs, groundTruth)
+        loss = criterion(prediction, masks)
 
         # Backward
         loss.backward()

@@ -1,12 +1,13 @@
-import cv2
 from matplotlib import pyplot as plt
 import torch
-from torchvision.transforms import v2 as tranformsv2
+from torchvision.transforms import v2 as transformsv2
 from Tool.Util import GetUniqueRGBPixels, RGBMaskToColorMap
+import torchvision
 
+# img = cv2.imread("data/data/masks/00000.png")
+# image = torch.from_numpy(img)
 
-img = cv2.imread("data/data/masks/00000.png")
-image = torch.from_numpy(img)
+image = torchvision.io.read_image("data/data/masks/00000.png", torchvision.io.ImageReadMode.RGB)
 
 
 class MaskTransforms():
@@ -19,14 +20,13 @@ class MaskTransforms():
         maps.update(self.ColorMaps)
         newMask = RGBMaskToColorMap(image, maps, self.ChannelFirst)
         return newMask
+    
 
+print("Önceki boyut:", image.size)
 
-image = image.permute(2, 0, 1)
-print("Önceki boyut:", image.shape)
-
-MASK_TRANSFORMS = tranformsv2.Compose([
-    tranformsv2.ToImage(),
-    tranformsv2.Resize((256, 256), antialias=True),
+MASK_TRANSFORMS = transformsv2.Compose([
+    transformsv2.ToImage(),
+    # transformsv2.Resize((256, 256), antialias=True),
 ])
 
 newMask = MASK_TRANSFORMS(image)

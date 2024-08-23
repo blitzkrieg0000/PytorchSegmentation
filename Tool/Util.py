@@ -1,3 +1,4 @@
+from matplotlib import pyplot as plt
 import torch
 
 
@@ -12,11 +13,14 @@ def GetUniqueRGBPixels(image:torch.Tensor, channel_first:bool=False):
         return:
             dict[int, torch.Tensor]
     """
+
     if channel_first: # To Channel Last: C x H x W => H x W x C
         image = image.permute(1, 2, 0)
+        
 
-    uniques = image.contiguous().view(-1, image.shape[-1]).unique(dim=0)
-    
+    reshaped = image.view(-1, image.shape[-1])
+    print(reshaped.stride())
+    uniques = reshaped.unique(dim=0)
     maps = {index: val for index, val in enumerate(uniques)}
     return maps
 

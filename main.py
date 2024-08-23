@@ -29,7 +29,7 @@ CLASS_NAMES = ["background", "disease"]
 #! TOOL
 # =================================================================================================================== #
 class MaskTransforms():
-    def __init__(self, color_maps:dict[int, torch.Tensor]=[], channel_first=False):
+    def __init__(self, color_maps:dict[int, torch.Tensor]={}, channel_first=False):
         self.ColorMaps = color_maps
         self.ChannelFirst = channel_first
 
@@ -87,7 +87,8 @@ class CustomSegmentationDataset(Dataset):
 
     def ReadImage(self, path) -> torch.Tensor:
         return torchvision.io.read_image(path, torchvision.io.ImageReadMode.RGB) # C x H x W
-
+    
+        # return Image.open(path).convert("RGB")
 
 
     def ApplyTransforms(self, image, mask):
@@ -108,6 +109,7 @@ class CustomSegmentationDataset(Dataset):
         img_path, mask_path = self.dataset[idx]
         image = self.ReadImage(img_path)
         mask = self.ReadImage(mask_path)
+        
         image, mask = self.ApplyTransforms(image, mask)
         return image, mask
     

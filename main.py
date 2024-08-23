@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision
 import torchvision.models as models
-from torchvision.transforms import v2 as tranformsv2
+from torchvision.transforms import v2 as transformsv2, InterpolationMode
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset, random_split
 # from torchmetrics import Accuracy, ConfusionMatrix, F1Score, Precision, Recall
@@ -42,16 +42,17 @@ class MaskTransforms():
         newMask = RGBMaskToColorMap(image, maps, self.ChannelFirst)
         return newMask
     
-TRANSFORMS = tranformsv2.Compose([
-    tranformsv2.ToImage(),
-    tranformsv2.Resize((256, 256), antialias=True)
+
+TRANSFORMS = transformsv2.Compose([
+    transformsv2.ToImage(),
+    transformsv2.Resize((256, 256), antialias=False, interpolation=InterpolationMode.NEAREST) # Maskenin bozulmaması için NEAREST
 ])
 
-MASK_TRANSFORMS = tranformsv2.Compose([
+MASK_TRANSFORMS = transformsv2.Compose([
     TRANSFORMS,
-    MaskTransforms(channel_first=True)
-])
+    MaskTransforms(channel_first=True),
 
+])
 
 
 # =================================================================================================================== #
@@ -193,7 +194,6 @@ for epoch in range(EPOCH):
     for (images, masks) in TRAIN_LOADER:  # Görüntü ve maske yollarını al
         images, masks = images.to(DEVICE, dtype=torch.float32), masks.to(DEVICE, dtype=torch.int64)
 
-
         # plt.figure(figsize=(10, 10))
         # plt.imshow(masks.cpu().numpy()[0])
         # plt.show()
@@ -204,17 +204,19 @@ for epoch in range(EPOCH):
 
         # Forward
         outputs = model(images)
-        prediction = outputs.argmax(dim=1)
+
+        print(masks.unique())
 
         # Loss
-        loss = criterion(prediction, masks)
+        loss = criterion(outputs, masks)
 
         # Backward
         loss.backward()
 
         # Optimize
         optimizer.step()
-        
+
+        # prediction = outputs.argmax(dim=1)
         running_loss += loss.item()
 
     print(f'Epoch [{epoch+1}/{EPOCH}], Loss: {running_loss/len(TRAIN_LOADER):.4f}')

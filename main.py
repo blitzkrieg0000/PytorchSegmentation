@@ -1,19 +1,16 @@
 import os
 
-import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchvision
-import torchvision.models as models
 from torchvision.transforms import v2 as transformsv2, InterpolationMode
+from torch.utils.data import Dataset
 from PIL import Image
-from torch.utils.data import DataLoader, Dataset, random_split
-# from torchmetrics import Accuracy, ConfusionMatrix, F1Score, Precision, Recall
-
+from torch.utils.data import DataLoader, random_split
 from Tool.Util import GetUniqueRGBPixels, RGBMaskToColorMap
+
 
 # =================================================================================================================== #
 #! PARAMS
@@ -50,20 +47,19 @@ TRANSFORMS = transformsv2.Compose([
 
 MASK_TRANSFORMS = transformsv2.Compose([
     TRANSFORMS,
-    MaskTransforms(channel_first=True),
-
+    MaskTransforms(channel_first=True)
 ])
 
 
 # =================================================================================================================== #
 #! Load Dataset
 # =================================================================================================================== #
-class CustomSegmentationDataset():
-    def __init__(self, img_dir, mask_dir, transform=None, mask_transforms=None):
+class CustomSegmentationDataset(Dataset):
+    def __init__(self, img_dir, mask_dir, transforms=None, mask_transforms=None):
         self.img_dir = img_dir
         self.mask_dir = mask_dir
         self.dataset = []
-        self.transform = transform
+        self.transforms = transforms
         self.mask_transforms = mask_transforms
         self.unique_values = set()
         self.img_files = []
@@ -91,12 +87,12 @@ class CustomSegmentationDataset():
 
     def ReadImage(self, path) -> torch.Tensor:
         return torchvision.io.read_image(path, torchvision.io.ImageReadMode.RGB) # C x H x W
-        # return Image.open(path).convert("RGB")
+
 
 
     def ApplyTransforms(self, image, mask):
-        if self.transform:
-            image = self.transform(image)
+        if self.transforms:
+            image = self.transforms(image)
 
         if self.mask_transforms:
             mask = self.mask_transforms(mask) 
@@ -128,7 +124,7 @@ class CustomSegmentationDataset():
 DATASET = CustomSegmentationDataset(
     img_dir=image_dir,
     mask_dir=mask_dir,
-    transform=TRANSFORMS,
+    transforms=TRANSFORMS,
     mask_transforms=MASK_TRANSFORMS
 )
 

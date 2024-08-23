@@ -173,10 +173,10 @@ for epoch in range(num_epochs):
 #
 #all_preds = []
 #with torch.no_grad():
-#    for image_paths, mask_paths in train_loader:  # Görüntü ve maske yollarını al
+#    for image_paths, mask_paths in train_loader: 
 #        images = []
 #        masks = []
-#        for img_path, mask_path in zip(image_paths, mask_paths): # Her bir batch'deki yollar üzerinde yinele
+#        for img_path, mask_path in zip(image_paths, mask_paths): 
 #            image = Image.open(img_path).convert('RGB')
 #            tensor_image = transform(image).to(DEVICE)
 #            images.append(tensor_image)
@@ -185,7 +185,7 @@ for epoch in range(num_epochs):
 #            tensor_mask = transform(mask).to(DEVICE)
 #            masks.append(tensor_mask)
 #        
-#        # Görüntüleri ve maskeleri tensörlere yığınla
+#        
 #        images = torch.stack(images)
 #        masks = torch.stack(masks)
 #        outputs = model(images)

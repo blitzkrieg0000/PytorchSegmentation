@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader, Dataset, random_split
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms import v2 as transformsv2
 
-from Tool.Util import GetUniqueRGBPixels, RGBMaskToColorMap
+from Tool.Util import GetUniqueRGBPixels, RGBMaskToColorMap, RemoveAntialiasing
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu") 
 
@@ -19,27 +19,27 @@ mask_dir = "./data/data/masks"
 
 
 class MaskTransforms():
-    def __init__(self, color_maps:dict[int, torch.Tensor]=[], channel_first=False):
+    def __init__(self, color_maps:dict[int, torch.Tensor]={}, override_colors=False, channel_first=False, rm_aa_thres=15, remove_aa=True):
         self.ColorMaps = color_maps
         self.ChannelFirst = channel_first
+        self.RemoveAntialiasingThreshold = rm_aa_thres
+        self.RemoveAntialiasing = remove_aa
+        self.OverrideColors = override_colors
 
     def __call__(self, image):
-        maps = GetUniqueRGBPixels(image, self.ChannelFirst)
-        maps.update(self.ColorMaps)
+        
+        if self.RemoveAntialiasing:
+            image = RemoveAntialiasing(image, target_colors=self.ColorMaps, threshold=15, channel_first=self.ChannelFirst)
+
+        if self.OverrideColors:
+            maps = self.ColorMaps
+        else:
+            maps = GetUniqueRGBPixels(image, self.ChannelFirst)
+            maps.update(self.ColorMaps)
+
         newMask = RGBMaskToColorMap(image, maps, self.ChannelFirst)
         return newMask
     
-
-TRANSFORMS = transformsv2.Compose([
-    # transformsv2.ToImage(),
-    transformsv2.Resize((256, 256), antialias=False, interpolation=InterpolationMode.NEAREST) # Maskenin bozulmaması için NEAREST
-])
-
-MASK_TRANSFORMS = transformsv2.Compose([
-    TRANSFORMS,
-    MaskTransforms(channel_first=True),
-
-])
 
 
 class CustomSegmentationDataset(Dataset):
@@ -97,11 +97,31 @@ class CustomSegmentationDataset(Dataset):
         img_path, mask_path = self.dataset[idx]
         image = self.ReadImage(img_path)
         mask = self.ReadImage(mask_path)
-        print(mask_path)
         image, mask = self.ApplyTransforms(image, mask)
         return image, mask
     
 
+
+COLOR_MAPS = {
+    0: [0, 0, 0],
+    1: [120, 0, 0]
+}
+
+TRANSFORMS = transformsv2.Compose([
+    transformsv2.ToImage(),
+    transformsv2.Resize((256, 256), antialias=False, interpolation=InterpolationMode.NEAREST) # Maskenin bozulmaması için NEAREST
+])
+
+MASK_TRANSFORMS = transformsv2.Compose([
+    TRANSFORMS,
+    MaskTransforms(
+        channel_first=True,
+        remove_aa=True,
+        rm_aa_thres=15,
+        override_colors=True,
+        color_maps=COLOR_MAPS
+    )
+])
 
 # Load
 DATASET = CustomSegmentationDataset(
@@ -111,23 +131,26 @@ DATASET = CustomSegmentationDataset(
     mask_transforms=MASK_TRANSFORMS
 )
 
-data = "data/data/masks/00500.png"
-data = torchvision.io.read_image(data, torchvision.io.ImageReadMode.RGB)
+
+TRAIN_LOADER = DataLoader(DATASET, batch_size=8, shuffle=True)
 
 
-result = MASK_TRANSFORMS(data)
-print(result.unique())
-
-
-# TRAIN_LOADER = DataLoader(DATASET, batch_size=4, shuffle=False)
-
-
-# for (images, masks) in DATASET:
-#     print(masks.unique())
+for image, mask in TRAIN_LOADER:
+    print(mask.unique())
 
 
 
-    # plt.figure(figsize=(10, 10))
-    # plt.imshow(masks.numpy())
-    # plt.show()
+
+# data = "data/data/masks/00500.png"
+# data = torchvision.io.read_image(data, torchvision.io.ImageReadMode.RGB)
+# rdata = RemoveAntialiasing(data, targetColors, threshold=15, channel_first=True)
+# maps = GetUniqueRGBPixels(rdata, channel_first=False)
+# print(maps)
+# # result = MASK_TRANSFORMS(data)
+# # print(result.unique())
+
+# fig, ax = plt.subplots(1, 2)
+# ax[0].imshow(data.permute(1, 2, 0).numpy())  # data.permute(1, 2, 0).numpy()
+# ax[1].imshow(rdata.numpy())  # data.permute(1, 2, 0).numpy()
+# plt.show()
 

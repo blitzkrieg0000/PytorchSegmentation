@@ -9,7 +9,7 @@ from torchvision.transforms import v2 as transformsv2, InterpolationMode
 from torch.utils.data import Dataset
 from PIL import Image
 from torch.utils.data import DataLoader, random_split
-from Tool.Util import GetUniqueRGBPixels, RGBMaskToColorMap
+from Tool.Util import GetUniqueRGBPixels, RGBMaskToColorMap, RemoveAntialiasing
 
 
 # =================================================================================================================== #
@@ -29,16 +29,32 @@ CLASS_NAMES = ["background", "disease"]
 #! TOOL
 # =================================================================================================================== #
 class MaskTransforms():
-    def __init__(self, color_maps:dict[int, torch.Tensor]={}, channel_first=False):
+    def __init__(self, color_maps:dict[int, torch.Tensor]={}, override_colors=False, channel_first=False, rm_aa_thres=15, remove_aa=True):
         self.ColorMaps = color_maps
         self.ChannelFirst = channel_first
+        self.RemoveAntialiasingThreshold = rm_aa_thres
+        self.RemoveAntialiasing = remove_aa
+        self.OverrideColors = override_colors
 
     def __call__(self, image):
-        maps = GetUniqueRGBPixels(image, self.ChannelFirst)
-        maps.update(self.ColorMaps)
+        if self.RemoveAntialiasing:
+            image = RemoveAntialiasing(image, target_colors=self.ColorMaps, threshold=15, channel_first=self.ChannelFirst)
+        
+        if self.OverrideColors:
+            maps = self.ColorMaps
+        else:
+            maps = GetUniqueRGBPixels(image, self.ChannelFirst)
+            maps.update(self.ColorMaps)
+
         newMask = RGBMaskToColorMap(image, maps, self.ChannelFirst)
         return newMask
-    
+
+
+
+COLOR_MAPS = {
+    0: [0, 0, 0],
+    1: [120, 255, 0]
+}
 
 TRANSFORMS = transformsv2.Compose([
     transformsv2.ToImage(),
@@ -47,7 +63,13 @@ TRANSFORMS = transformsv2.Compose([
 
 MASK_TRANSFORMS = transformsv2.Compose([
     TRANSFORMS,
-    MaskTransforms(channel_first=True)
+    MaskTransforms(
+        channel_first=True,
+        remove_aa=True,
+        rm_aa_thres=15,
+        override_colors=True,
+        color_maps=COLOR_MAPS
+    )
 ])
 
 

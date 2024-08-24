@@ -15,14 +15,22 @@ from Tool.Util import GetUniqueRGBPixels, RGBMaskToColorMap, RemoveAntialiasing
 # =================================================================================================================== #
 #! PARAMS
 # =================================================================================================================== #
+# DATASET
 image_dir = "./data/data/images"
 mask_dir = "./data/data/masks"
-BATCH_SIZE = 8
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
-LEARNING_RATE = 1e-4
-EPOCH = 10
-NUM_CLASSES = 2
 CLASS_NAMES = ["background", "disease"]
+COLOR_MAPS = {
+    0: [0, 0, 0],   # Arkaplan Pikselleri
+    1: [120, 0, 0]  # Hastalıklı Piksel
+}
+NUM_CLASSES = len(COLOR_MAPS)
+
+# MODEL
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
+BATCH_SIZE = 8
+LEARNING_RATE = 1e-4
+EPOCH = 20
+
 
 
 # =================================================================================================================== #
@@ -36,29 +44,26 @@ class MaskTransforms():
         self.RemoveAntialiasing = remove_aa
         self.OverrideColors = override_colors
 
-    def __call__(self, image):
+    def __call__(self, image: torch.Tensor):
+        if self.ChannelFirst:
+            image = image.permute(1, 2, 0)
+
         if self.RemoveAntialiasing:
-            image = RemoveAntialiasing(image, target_colors=self.ColorMaps, threshold=15, channel_first=self.ChannelFirst)
-        
+            image = RemoveAntialiasing(image, target_colors=self.ColorMaps, threshold=15)
+
         if self.OverrideColors:
             maps = self.ColorMaps
         else:
-            maps = GetUniqueRGBPixels(image, self.ChannelFirst)
+            maps = GetUniqueRGBPixels(image)
             maps.update(self.ColorMaps)
 
-        newMask = RGBMaskToColorMap(image, maps, self.ChannelFirst)
+        newMask = RGBMaskToColorMap(image, maps)
         return newMask
-
-
-
-COLOR_MAPS = {
-    0: [0, 0, 0],
-    1: [120, 255, 0]
-}
+    
 
 TRANSFORMS = transformsv2.Compose([
     transformsv2.ToImage(),
-    transformsv2.Resize((256, 256), antialias=False, interpolation=InterpolationMode.NEAREST) # Maskenin bozulmaması için NEAREST
+    transformsv2.Resize((256, 256), antialias=False, interpolation=InterpolationMode.NEAREST) # Yeniden Boyutlandırırken Ara Pikseller Doldurulunca Maskenin bozulmaması için NEAREST yöntemi kullanıldı.
 ])
 
 MASK_TRANSFORMS = transformsv2.Compose([
@@ -131,7 +136,6 @@ class CustomSegmentationDataset(Dataset):
         img_path, mask_path = self.dataset[idx]
         image = self.ReadImage(img_path)
         mask = self.ReadImage(mask_path)
-        
         image, mask = self.ApplyTransforms(image, mask)
         return image, mask
     
@@ -142,6 +146,7 @@ class CustomSegmentationDataset(Dataset):
             mask = Image.open(mask_path).convert("L")
             self.unique_values.update(np.unique(mask))
        return len(self.unique_values)
+
 
 
 # Load
@@ -194,14 +199,10 @@ class SimpleSegmentation(nn.Module):
         return x
     
 
-
-
-for (images, masks) in TRAIN_LOADER:  # Görüntü ve maske yollarını al
-    images, masks = images.to(DEVICE, dtype=torch.float32), masks.to(DEVICE, dtype=torch.int64)
-    print(masks.unique())
-
-import sys
-sys.exit()
+#! TEST
+# for (images, masks) in TRAIN_LOADER:  # Görüntü ve maske yollarını al
+#     images, masks = images.to(DEVICE, dtype=torch.float32), masks.to(DEVICE, dtype=torch.int64)
+#     print(masks.unique())
 
 
 
@@ -215,6 +216,12 @@ model.train()
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
+
+
+
+# =================================================================================================================== #
+#! TRAIN
+# =================================================================================================================== #
 images: torch.Tensor
 masks: torch.Tensor
 outputs: torch.Tensor
@@ -228,14 +235,11 @@ for epoch in range(EPOCH):
         # plt.imshow(masks[0].cpu().numpy())
         # plt.show()
 
-
         # Hafızadaki Gradyantlerı sıfırla
         optimizer.zero_grad()
 
         # Forward
         outputs = model(images)
-
-        print(masks.unique())
 
         # Loss
         loss = criterion(outputs, masks)

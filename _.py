@@ -26,18 +26,20 @@ class MaskTransforms():
         self.RemoveAntialiasing = remove_aa
         self.OverrideColors = override_colors
 
-    def __call__(self, image):
-        
+    def __call__(self, image: torch.Tensor):
+        if self.ChannelFirst:
+            image = image.permute(1, 2, 0)
+
         if self.RemoveAntialiasing:
-            image = RemoveAntialiasing(image, target_colors=self.ColorMaps, threshold=15, channel_first=self.ChannelFirst)
+            image = RemoveAntialiasing(image, target_colors=self.ColorMaps, threshold=15)
 
         if self.OverrideColors:
             maps = self.ColorMaps
         else:
-            maps = GetUniqueRGBPixels(image, self.ChannelFirst)
+            maps = GetUniqueRGBPixels(image)
             maps.update(self.ColorMaps)
 
-        newMask = RGBMaskToColorMap(image, maps, self.ChannelFirst)
+        newMask = RGBMaskToColorMap(image, maps)
         return newMask
     
 

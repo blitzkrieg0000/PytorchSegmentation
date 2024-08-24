@@ -28,9 +28,9 @@ NUM_CLASSES = len(COLOR_MAPS)
 
 # MODEL
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
-BATCH_SIZE = 8
+BATCH_SIZE = 16
 LEARNING_RATE = 1e-4
-EPOCH = 2
+EPOCH = 50
 
 
 

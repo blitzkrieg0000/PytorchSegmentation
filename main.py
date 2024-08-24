@@ -1,16 +1,17 @@
 import os
 
+from matplotlib import pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torchmetrics import Accuracy, ConfusionMatrix, F1Score, Precision, Recall
 import torchvision
 from torchvision.transforms import v2 as transformsv2, InterpolationMode
 from torch.utils.data import Dataset
 from PIL import Image
 from torch.utils.data import DataLoader, random_split
 from Tool.Util import GetUniqueRGBPixels, RGBMaskToColorMap, RemoveAntialiasing
-
 
 # =================================================================================================================== #
 #! PARAMS
@@ -29,7 +30,7 @@ NUM_CLASSES = len(COLOR_MAPS)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
 BATCH_SIZE = 8
 LEARNING_RATE = 1e-4
-EPOCH = 20
+EPOCH = 2
 
 
 
@@ -169,6 +170,10 @@ TRAIN_LOADER = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 VAL_LOADER = DataLoader(validation_dataset, batch_size=BATCH_SIZE, shuffle=False)
 TEST_LOADER = DataLoader(test_dataset, batch_size=1, shuffle=False)
 
+#* DATALOADER TEST
+# for (images, masks) in TRAIN_LOADER:  # Görüntü ve maske yollarını al
+#     images, masks = images.to(DEVICE, dtype=torch.float32), masks.to(DEVICE, dtype=torch.int64)
+#     print(masks.unique())
 
 
 # =================================================================================================================== #
@@ -199,10 +204,7 @@ class SimpleSegmentation(nn.Module):
         return x
     
 
-#! TEST
-# for (images, masks) in TRAIN_LOADER:  # Görüntü ve maske yollarını al
-#     images, masks = images.to(DEVICE, dtype=torch.float32), masks.to(DEVICE, dtype=torch.int64)
-#     print(masks.unique())
+
 
 
 
@@ -218,7 +220,6 @@ optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
 
 
-
 # =================================================================================================================== #
 #! TRAIN
 # =================================================================================================================== #
@@ -228,6 +229,8 @@ outputs: torch.Tensor
 for epoch in range(EPOCH):
     running_loss = 0.0
     
+    # Train
+    model.train()
     for (images, masks) in TRAIN_LOADER:  # Görüntü ve maske yollarını al
         images, masks = images.to(DEVICE, dtype=torch.float32), masks.to(DEVICE, dtype=torch.int64)
 
@@ -242,7 +245,12 @@ for epoch in range(EPOCH):
         outputs = model(images)
 
         # Loss
-        loss = criterion(outputs, masks)
+        # Loss motodu ile tahmin edilen görüntü (PREDICTION) ile görüntü (LABEL) kıyaslar.
+        # Pytorchta Loss metotları segmentasyon için her tahmin edilen 4D tensorü (N x C x H x W) ile 3D maske tensorü (N x H x W) karşılaştırılır.
+        # Her sınıf için ayrı bir "C" boyutu vardır. İki sınıf varsa, iki adet "C" boyutu vardır. Yani her piksel için ayrı sınıf olasılıkları hesaplanır.
+        # Örnekte Cross Entropy Loss metodu, kullanılmıştır. Bu metot (N x C x H x W)' a önce softmax uygular. Bu yüzden modelin sonunda softmax uygulanmasına gerek yoktur.
+        # PREDICTION(float)(BATCH x CLASSES x H x W)  <- X ->  LABEL(int64(long)) (BATCH x H x W)
+        loss = criterion(outputs, masks)   
 
         # Backward
         loss.backward()
@@ -253,61 +261,72 @@ for epoch in range(EPOCH):
         # prediction = outputs.argmax(dim=1)
         running_loss += loss.item()
 
-    print(f'Epoch [{epoch+1}/{EPOCH}], Loss: {running_loss/len(TRAIN_LOADER):.4f}')
+    print(f"Epoch [{epoch+1}/{EPOCH}], Loss: {running_loss/len(TRAIN_LOADER):.4f}")
+
+    # Validation
+    model.eval()
+    predictions = []
+    predictionGroundTruths = []
+    with torch.no_grad():
+        for images, masks in VAL_LOADER:
+            images, masks = images.to(DEVICE, dtype=torch.float32), masks.to(DEVICE, dtype=torch.int64)
+            outputs = model(images)
+            preds = outputs.argmax(dim=1)
+            predictions += [preds]
+            predictionGroundTruths += [masks]
 
 
-#model.eval()
-#
-#all_preds = []
-#with torch.no_grad():
-#    for image_paths, mask_paths in train_loader: 
-#        images = []
-#        masks = []
-#        for img_path, mask_path in zip(image_paths, mask_paths): 
-#            image = Image.open(img_path).convert('RGB')
-#            tensor_image = transform(image).to(DEVICE)
-#            images.append(tensor_image)
-#            
-#            mask = Image.open(mask_path).convert('RGB')
-#            tensor_mask = transform(mask).to(DEVICE)
-#            masks.append(tensor_mask)
-#        
-#        
-#        images = torch.stack(images)
-#        masks = torch.stack(masks)
-#        outputs = model(images)
-#        _, preds = torch.max(outputs, 1)
-#        all_preds.append(preds)
-#        
-#y_pred = torch.cat(all_preds).cpu()
-#y_true = y_test.cpu()
-#
-#confmat = ConfusionMatrix(task="multiclass",num_classes=num_classes)
-#confmat = confmat.to('cpu')
-#confmat(y_pred,y_true.argmax(dim=1))
-#cm = confmat.compute()
-#print(cm)
-#
-#accuracy = Accuracy(task="multiclass",num_classes=num_classes)
-#acc = accuracy(y_pred, y_true.argmax(dim=1))
-#
-#precision = Precision(task="multiclass",num_classes=num_classes, average=None)
-#prec = precision(y_pred, y_true.argmax(dim=1))
-#
-#recall = Recall(task="multiclass",num_classes=num_classes, average=None)
-#rec = recall(y_pred,y_true.argmax(dim=1))
-#
-#f1score = F1Score(task="multiclass",num_classes=num_classes, average=None)
-#f1 = f1score(y_pred, y_true.argmax(dim=1))
-#
-#for i in range(num_classes):
-#    print(f'Class {i} - Precision: {prec[i].item():.4f}')
-#    print(f'Class {i} - Recall: {rec[i].item():.4f}')
-#    print(f'Class {i} - F1 Score: {f1[i].item():.4f}')
-#
-#print(f'Overall Accuracy: {acc:.4f}')    
-#
-#
+
+# TEST
+predictions = []
+predictionGroundTruths = []
+with torch.no_grad():
+    for images, masks in TEST_LOADER:
+        images, masks = images.to(DEVICE, dtype=torch.float32), masks.to(DEVICE, dtype=torch.int64)
+        outputs = model(images)
+        preds = outputs.argmax(dim=1)
+        predictions += [preds]
+        predictionGroundTruths += [masks]
+
+
+
+y_pred = torch.cat(predictions).cpu()
+y_gt = torch.cat(predictionGroundTruths).cpu()
+confmat = ConfusionMatrix(task="multiclass", num_classes=NUM_CLASSES, normalize="true")
+confmat = confmat.to("cpu")
+confmat(y_pred, y_gt)
+cm = confmat.compute()
+print(cm)
+
+import seaborn as sb
+ax = plt.subplot()
+sb.heatmap(cm.numpy(), ax=ax, annot=True, fmt=".4f", cmap="seismic", xticklabels=range(NUM_CLASSES), yticklabels=range(NUM_CLASSES))
+ax.set_xlabel("Predicted Labels")
+ax.set_ylabel("True Labels")
+ax.set_title("Normalized Confusion Matrix")
+plt.show()
+
+exit()
+accuracy = Accuracy(task="multiclass",num_classes=NUM_CLASSES)
+acc = accuracy(y_pred, y_true.argmax(dim=1))
+
+precision = Precision(task="multiclass",num_classes=NUM_CLASSES, average=None)
+prec = precision(y_pred, y_true.argmax(dim=1))
+
+recall = Recall(task="multiclass",num_classes=NUM_CLASSES, average=None)
+rec = recall(y_pred,y_true.argmax(dim=1))
+
+f1score = F1Score(task="multiclass",num_classes=NUM_CLASSES, average=None)
+f1 = f1score(y_pred, y_true.argmax(dim=1))
+
+for i in range(NUM_CLASSES):
+   print(f"Class {i} - Precision: {prec[i].item():.4f}")
+   print(f"Class {i} - Recall: {rec[i].item():.4f}")
+   print(f"Class {i} - F1 Score: {f1[i].item():.4f}")
+
+print(f"Overall Accuracy: {acc:.4f}")    
+
+
 
 
 
